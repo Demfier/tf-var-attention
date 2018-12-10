@@ -24,8 +24,8 @@ SPECIAL_TOKEN = '<SENT-TOKENIZED>'
 SKIP_LEN = len(SPECIAL_TOKEN)
 
 
-def make_ultimate_sentences():
-    if os.path.exists(SAVE_DIR + 'arc-sentences-all.txt'):
+def make_ultimate_sentences(force=False):
+    if not force and os.path.exists(SAVE_DIR + 'arc-sentences-all.txt'):
         print('arc-sentences-all.txt already exists'.
               format(SAVE_DIR))
         return
@@ -48,10 +48,10 @@ def make_ultimate_sentences():
 RWS_TUPLE_FILE = '../data/ALL-productID-sent-RWS_tuple'
 
 
-def make_csv_datafiles():
-    if os.path.exists(SAVE_DIR + "df_arc_train.csv") \
-        or os.path.exists(SAVE_DIR + "df_arc_val.csv") \
-            or os.path.exists(SAVE_DIR + "df_arc_test.csv"):
+def make_csv_datafiles(force=False):
+    if not force and (os.path.exists(SAVE_DIR + "df_arc_train.csv")
+                      or os.path.exists(SAVE_DIR + "df_arc_val.csv")
+                      or os.path.exists(SAVE_DIR + "df_arc_test.csv")):
         print('The train-val-test csvs already exist for ARC experiments')
         return
     start = time.clock()
@@ -59,6 +59,9 @@ def make_csv_datafiles():
     all_rws = pd.read_csv(RWS_TUPLE_FILE, names=['ProductID', 'ProductSent',
                           'ProductPhrase', 'Category'], encoding='latin1')
     # shuffle
+    all_rws['ProductSent'] = all_rws['ProductSent'].map(str.lower)
+    all_rws['ProductPhrase'] = all_rws['ProductPhrase'].map(str.lower)
+    all_rws['Category'] = all_rws['Category'].apply(lambda x: x.lower().replace('&', 'and'))
     all_rws = all_rws.sample(frac=1).reset_index(drop=True)
     total_rows = len(all_rws)
     # train:val:test <=> 70:10:20 split
@@ -75,8 +78,8 @@ def make_csv_datafiles():
 BAD_DICT_FILE = '../data/subCat2CatMap.pkl'
 
 
-def fix_dict_key_casing():
-    if os.path.exists(SAVE_DIR + 'subCat2CatMap.json'):
+def fix_dict_key_casing(force=False):
+    if not force and os.path.exists(SAVE_DIR + 'subCat2CatMap.json'):
         print('subCat2CatMap alredy exists')
         return
     start = time.clock()
@@ -95,7 +98,7 @@ def fix_dict_key_casing():
 if __name__ == '__main__':
     start = time.clock()
     make_ultimate_sentences()
-    make_csv_datafiles()
+    make_csv_datafiles(force=True)
     fix_dict_key_casing()
     print("\nDone preparing data for ARC experiments in {:.4f} seconds.".
           format(time.clock() - start))

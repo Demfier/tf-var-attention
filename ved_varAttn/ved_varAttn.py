@@ -436,7 +436,7 @@ class VarSeq2SeqVarAttnModel(object):
         x_test_repeated = np.repeat(x_test, num_samples, axis=0)
         y_test_repeated = np.repeat(y_test, num_samples, axis=0)
 
-        entropy_list =[]
+        entropy_list = []
         uni_diversity = []
         bi_diversity = []
 

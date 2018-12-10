@@ -31,6 +31,6 @@ config = dict(
     w2v_dir='../w2v_models/',  # Word2Vec model directory
     data_dir='../data/',  # Directory to store data csv files
 
-    load_checkpoint=7,  # Specify the trained model epoch/checkpoint number to be loaded for evaluation on test set, 0 means last saved checkpoint
+    load_checkpoint=9,  # Specify the trained model epoch/checkpoint number to be loaded for evaluation on test set, 0 means last saved checkpoint
 
 )
