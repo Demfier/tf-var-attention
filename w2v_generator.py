@@ -10,7 +10,7 @@ W2V_DIR = 'w2v_models/'
 DATA_DIR = 'data/'
 
 parser = argparse.ArgumentParser(description='Create word2vec embeddings for the specified dataset')
-parser.add_argument('-d', '--dataset', help='Specify dataset: either qgen, dialogue or both', required=True)
+parser.add_argument('-d', '--dataset', help='Specify dataset: either qgen, dialogue or arc', required=True)
 args = vars(parser.parse_args())
 
 
@@ -21,16 +21,22 @@ def main():
     all_files = os.listdir(DATA_DIR)
 
     if args['dataset'] == 'dialogue':
-        files = [f for f in all_files if 'dialogue' in f]
+        files = [f for f in all_files if '_dialogue_' in f]
     elif args['dataset'] == 'qgen':
-        files = [f for f in all_files if 'qgen' in f]
+        files = [f for f in all_files if '_qgen_' in f]
+    elif args['dataset'] == 'arc':
+        files = [f for f in all_files if '_arc_' in f]
     else:
         print('Invalid Argument !')
         return
 
     df_list = pd.concat(load_data(files))
     df_list.reset_index(inplace=True, drop=True)
-    data = list(df_list.iloc[:, 0] + df_list.iloc[:, 1]) # 1st and 2nd column
+    if args['dataset'] == 'arc':
+        data = list(df_list.iloc[:, 1] + df_list.iloc[:, 2])  # 2nd and 3rd column
+    else:
+        data = list(df_list.iloc[:, 0] + df_list.iloc[:, 1])  # 1st and 2nd column
+
     create_w2v(data)
     print('Word2Vec created successfully for {}'.format(args['dataset']))
 

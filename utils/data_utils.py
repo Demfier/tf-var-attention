@@ -100,6 +100,10 @@ def create_data_split(x, y, experiment):
         train_size = pd.read_csv('../data/df_dialogue_train.csv').shape[0]
         val_size = pd.read_csv('../data/df_dialogue_val.csv').shape[0]
         test_size = pd.read_csv('../data/df_dialogue_test.csv').shape[0]
+    elif experiment == 'arc':
+        train_size = pd.read_csv('../data/df_arc_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_arc_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_arc_test.csv').shape[0]
     else:
         print('Invalid experiment name specified !')
         return

@@ -1,0 +1,2 @@
+The outputs/ folder and the ALL-productID-sent-RWS_tuple are the raw files directly provided by Prof. Olga.
+They are being preprocessed and then, the *usable* files are put in appropriate directory (which is the 'data/' directory in this case)

@@ -42,6 +42,20 @@ def train_model(config):
         filters = '!"#$%&()*+/:;<=>@[\\]^`{|}~\t\n'
         w2v_path = config['w2v_dir'] + 'w2vmodel_dialogue.pkl'
 
+    elif config['experiment'] == 'arc':
+        train_data = pd.read_csv(config['data_dir'] + 'df_arc_train.csv')
+        val_data = pd.read_csv(config['data_dir'] + 'df_arc_val.csv')
+        test_data = pd.read_csv(config['data_dir'] + 'df_arc_test.csv')
+        input_sentences = pd.concat([train_data['ProductSent'],
+                                    val_data['ProductSent'],
+                                    test_data['ProductSent']])
+        output_sentences = pd.concat([train_data['ProductPhrase'],
+                                      val_data['ProductPhrase'],
+                                      test_data['ProductPhrase']])
+        true_val = val_data['ProductPhrase']
+        filters = '!"#$%&()*+/:;<=>@[\\]^`{|}~\t\n'
+        w2v_path = config['w2v_dir'] + 'w2vmodel_arc.pkl'
+
     else:
         print('Invalid experiment name specified!')
         return
