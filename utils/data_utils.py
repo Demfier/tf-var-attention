@@ -77,7 +77,7 @@ def create_embedding_matrix(word_index, embedding_dim, w2v_path):
     return embeddings_matrix
 
 
-def create_data_split(x, y, experiment):
+def create_data_split(x, y, experiment, disc):
     """
     Create test-train split according to previously defined CSV files
     Depending on the experiment - qgen or dialogue
@@ -114,15 +114,18 @@ def create_data_split(x, y, experiment):
 
     x_train = x[train_indices]
     y_train = y[train_indices]
+    disc_train = disc[train_indices]
     x_val = x[val_indices]
     y_val = y[val_indices]
+    disc_val = disc[val_indices]
     x_test = x[test_indices]
     y_test = y[test_indices]
+    disc_test = disc[test_indices]
 
-    return x_train, y_train, x_val, y_val, x_test, y_test
+    return x_train, y_train, x_val, y_val, x_test, y_test, disc_train, disc_val, disc_test
 
 
-def get_batches(x, y, batch_size):
+def get_batches(x, y, batch_size, disc_train):
     """
     Generate inputs and targets in a batch-wise fashion for feed-dict
 
@@ -140,8 +143,10 @@ def get_batches(x, y, batch_size):
         start_i = batch_i * batch_size
         x_batch = x[start_i:start_i + batch_size]
         y_batch = y[start_i:start_i + batch_size]
+        disc_batch = disc_train[start_i:start_i + batch_size]
 
         source_sentence_length = [np.count_nonzero(seq) for seq in x_batch]
         target_sentence_length = [np.count_nonzero(seq) for seq in y_batch]
+        target_categories_length = [np.count_nonzero(seq) for seq in disc_train]
 
-        yield x_batch, y_batch, source_sentence_length, target_sentence_length
+        yield x_batch, y_batch, disc_batch, source_sentence_length, target_sentence_length, target_categories_length
