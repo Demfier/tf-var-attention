@@ -1,6 +1,8 @@
 import sys
 
-if '../' not in sys.path: sys.path.append('../')
+if '../' not in sys.path:
+    sys.path.append('../')
+
 import time
 import pickle
 import tensorflow as tf
@@ -17,8 +19,9 @@ from varAttention_decoder import attention_wrapper
 
 class VarSeq2SeqVarAttnModel(object):
 
-    def __init__(self, config, encoder_embeddings_matrix, decoder_embeddings_matrix,
-                 encoder_word_index, decoder_word_index):
+    def __init__(self, config, encoder_embeddings_matrix,
+                 decoder_embeddings_matrix, encoder_word_index,
+                 decoder_word_index):
 
         self.config = config
 
@@ -107,7 +110,7 @@ class VarSeq2SeqVarAttnModel(object):
                 self.decoder_embeddings = tf.Variable(
                     initial_value=np.array(self.decoder_embeddings_matrix, dtype=np.float32),
                     dtype=tf.float32, trainable=False)
-                
+
                 keep = tf.where(
                     tf.random_uniform([self.batch_size, self.decoder_num_tokens]) < self.word_dropout_keep_prob,
                     tf.fill([self.batch_size, self.decoder_num_tokens], True),
@@ -234,7 +237,7 @@ class VarSeq2SeqVarAttnModel(object):
             self.context_kl_loss = tf.scalar_mul(self.gamma_coeff * self.lambda_coeff, self.c_kl_batch_train)
 
             batch_maxlen = tf.reduce_max(self.target_sentence_length)
-            
+
             # the training decoder only emits outputs equal in time-steps to the
             # max time in the current batch
             target_sequence = tf.slice(
@@ -258,7 +261,6 @@ class VarSeq2SeqVarAttnModel(object):
 
             self.cost = tf.reduce_sum(self.xent_loss + self.kl_loss + self.context_kl_loss) + self.lossL2
 
-
     def optimize(self):
         # Optimizer
         with tf.name_scope('optimization'):
@@ -275,7 +277,7 @@ class VarSeq2SeqVarAttnModel(object):
             tf.summary.scalar('l2_loss', tf.reduce_sum(self.lossL2))
             tf.summary.scalar("kl_loss", tf.reduce_sum(self.kl_loss))
             tf.summary.scalar("context_kl_loss", tf.reduce_sum(self.context_kl_loss))
-            tf.summary.scalar('total_loss', tf.reduce_sum(self.cost))            
+            tf.summary.scalar('total_loss', tf.reduce_sum(self.cost))
             tf.summary.histogram("latent_vector", self.z_vector)
             tf.summary.histogram("latent_mean", self.z_mean)
             tf.summary.histogram("latent_log_sigma", self.z_log_sigma)
@@ -360,7 +362,7 @@ class VarSeq2SeqVarAttnModel(object):
         symbol=[]
         if self.config['experiment'] == 'qgen':
             symbol.append('?')
-            
+
         for batch_i, (input_batch, output_batch, source_sent_lengths, tar_sent_lengths) in enumerate(
                 data_utils.get_batches(x_val, y_val, self.batch_size)):
             answer_logits = sess.run(self.inference_logits,
@@ -387,10 +389,10 @@ class VarSeq2SeqVarAttnModel(object):
         pred_logits = []
         hypotheses_test = []
         references_test = []
-        symbol=[]
+        symbol = []
         if self.config['experiment'] == 'qgen':
             symbol.append('?')
-            
+
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver()
@@ -434,7 +436,7 @@ class VarSeq2SeqVarAttnModel(object):
         x_test_repeated = np.repeat(x_test, num_samples, axis=0)
         y_test_repeated = np.repeat(y_test, num_samples, axis=0)
 
-        entropy_list =[]
+        entropy_list = []
         uni_diversity = []
         bi_diversity = []
 

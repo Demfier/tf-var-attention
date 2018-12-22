@@ -77,6 +77,81 @@ def create_embedding_matrix(word_index, embedding_dim, w2v_path):
     return embeddings_matrix
 
 
+def create_data_split_mult(x, y, z, experiment):
+    """
+    Create test-train split according to previously defined CSV files
+    Depending on the experiment - qgen or dialogue
+
+    Args:
+        x: input sequence of indices
+        y: output sequence of indices
+        experiment: dialogue (conversation system) or qgen (question generation) task
+
+    Returns:
+        x_train, y_train, x_val, y_val, x_test, y_test: train val test split arrays
+
+    """
+
+    if experiment == 'qgen':
+        train_size = pd.read_csv('../data/df_qgen_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_qgen_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_qgen_test.csv').shape[0]
+    elif experiment == 'dialogue':
+        train_size = pd.read_csv('../data/df_dialogue_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_dialogue_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_dialogue_test.csv').shape[0]
+    elif experiment == 'arc':
+        train_size = pd.read_csv('../data/df_arc_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_arc_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_arc_test.csv').shape[0]
+    else:
+        print('Invalid experiment name specified !')
+        return
+
+    train_indices = range(train_size)
+    val_indices = range(train_size, train_size + val_size)
+    test_indices = range(train_size + val_size, train_size + val_size + test_size)
+
+    x_train = x[train_indices]
+    y_train = y[train_indices]
+    z_train = z[:train_size]
+    x_val = x[val_indices]
+    y_val = y[val_indices]
+    z_val = z[train_size: train_size + val_size]
+    x_test = x[test_indices]
+    y_test = y[test_indices]
+    z_test = z[train_size + val_size: train_size + val_size + test_size]
+
+    return x_train, y_train, z_train, x_val, y_val, z_val, x_test, y_test, z_test
+
+
+def get_batches_mult(x, y, z, batch_size):
+    """
+    Generate inputs and targets in a batch-wise fashion for feed-dict
+
+    Args:
+        x: entire source sequence array
+        y: entire output sequence array
+        batch_size: batch size
+
+    Returns:
+        x_batch, y_batch, source_sentence_length, target_sentence_length
+
+    """
+
+    for batch_i in range(0, len(x) // batch_size):
+        start_i = batch_i * batch_size
+        x_batch = x[start_i:start_i + batch_size]
+        y_batch = y[start_i:start_i + batch_size]
+        z_batch = z[start_i:start_i + batch_size]
+
+        source_sentence_length = [np.count_nonzero(seq) for seq in x_batch]
+        target_sentence_length = [np.count_nonzero(seq) for seq in y_batch]
+        target_categories_length = [np.count_nonzero(seq) for seq in z_batch]
+
+        yield x_batch, y_batch, z_batch, source_sentence_length, target_sentence_length, target_categories_length
+
+
 def create_data_split(x, y, experiment):
     """
     Create test-train split according to previously defined CSV files
@@ -100,6 +175,14 @@ def create_data_split(x, y, experiment):
         train_size = pd.read_csv('../data/df_dialogue_train.csv').shape[0]
         val_size = pd.read_csv('../data/df_dialogue_val.csv').shape[0]
         test_size = pd.read_csv('../data/df_dialogue_test.csv').shape[0]
+    elif experiment == 'arc':
+        train_size = pd.read_csv('../data/df_arc_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_arc_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_arc_test.csv').shape[0]
+    elif experiment == 'arc2':
+        train_size = pd.read_csv('../data/df_arc2_train.csv').shape[0]
+        val_size = pd.read_csv('../data/df_arc2_val.csv').shape[0]
+        test_size = pd.read_csv('../data/df_arc2_test.csv').shape[0]
     else:
         print('Invalid experiment name specified !')
         return
