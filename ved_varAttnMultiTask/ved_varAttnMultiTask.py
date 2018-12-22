@@ -5,12 +5,12 @@ if '../' not in sys.path:
 
 import time
 import pickle
-import helpers
-import tensorflow as tf
 import numpy as np
+from tqdm import tqdm
+import tensorflow as tf
 from utils import data_utils
 from utils import eval_utils
-from tqdm import tqdm
+from textClassifier import TextCNN
 from nltk.tokenize import word_tokenize
 from tensorflow.python.layers.core import Dense
 from varAttention_decoder import basic_decoder
@@ -33,9 +33,11 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
 
         self.encoder_vocab_size = config['encoder_vocab']
         self.decoder_vocab_size = config['decoder_vocab']
+        self.cnn_vocab = config['cnn_vocab']
 
         self.encoder_num_tokens = config['encoder_num_tokens']
         self.decoder_num_tokens = config['decoder_num_tokens']
+        self.cnn_sequence_length = config['sequence_length']
 
         self.dropout_keep_prob = config['dropout_keep_prob']
         self.word_dropout_keep_probability = config['word_dropout_keep_probability']
@@ -74,17 +76,11 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
         print("[INFO] Building Model ...")
 
         self.init_placeholders()
+        self.init_discriminator()
         self.embedding_layer()
         self.build_encoder()
         self.build_latent_space()
         self.build_decoder()
-        self.cnn = TextCNN(
-            sequence_length=self.config['sequence_length'],
-            num_classes=self.config['num_classes'],
-            embedding_size=self.config['cnn_embedding_size'],
-            vocab_size=self.config['cnn_vocab'],
-            filter_sizes=self.config['filter_sizes'],
-            num_filters=self.config['num_filters'])
         self.loss()
         self.optimize()
         self.summary()
@@ -105,6 +101,14 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
             self.gamma_coeff = tf.placeholder(tf.float32, name='gamma_coeff', shape=())
             self.z_temperature = tf.placeholder(tf.float32, name='z_temperature', shape=())
             self.attention_temperature = tf.placeholder(tf.float32, name='attention_temperature', shape=())
+
+    def init_discriminator(self):
+        self.cnn = TextCNN(self.config['sequence_length'],
+                           self.config['num_classes'],
+                           self.config['cnn_vocab'],
+                           self.embedding_size,
+                           self.config['filter_sizes'],
+                           self.config['num_filters'])
 
     def embedding_layer(self):
         with tf.name_scope("word_embeddings"):
@@ -246,6 +250,9 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
 
             batch_maxlen = tf.reduce_max(self.target_sentence_length)
 
+            # Discriminator loss
+            self.cnn_loss = self.cnn.loss
+
             # the training decoder only emits outputs equal in time-steps to the
             # max time in the current batch
             target_sequence = tf.slice(
@@ -263,14 +270,12 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                 weights=masks,
                 average_across_batch=False)
 
-            # Discriminator loss
-            self.disc_loss = self.cnn.loss
-
             # L2-Regularization
             self.var_list = tf.trainable_variables()
             self.lossL2 = tf.add_n([tf.nn.l2_loss(v) for v in self.var_list if 'bias' not in v.name]) * 0.001
 
-            self.cost = tf.reduce_sum(self.xent_loss + self.kl_loss + self.context_kl_loss + self.disc_loss) + self.lossL2
+            self.cost = tf.reduce_sum(self.xent_loss + self.kl_loss +
+                                      self.context_kl_loss) + self.lossL2 + self.cnn_loss
 
     def optimize(self):
         # Optimizer
@@ -282,20 +287,24 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
             capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
             self.train_op = optimizer.apply_gradients(capped_gradients)
 
+            # disc_optimizer = tf.train.AdamOptimizer(1e-3)
+            # disc_gradients = optimizer.compute_gradients(self.cnn_loss)
+            # self.disc_train_op = optimizer.apply_gradients(disc_gradients)
+
     def summary(self):
         with tf.name_scope('summaries'):
             tf.summary.scalar('xent_loss', tf.reduce_sum(self.xent_loss))
-            tf.summary.scalar('disc_loss', tf.reduce_sum(self.disc_loss))
             tf.summary.scalar('l2_loss', tf.reduce_sum(self.lossL2))
             tf.summary.scalar("kl_loss", tf.reduce_sum(self.kl_loss))
             tf.summary.scalar("context_kl_loss", tf.reduce_sum(self.context_kl_loss))
+            tf.summary.scalar("discriminator_loss", tf.reduce_sum(self.cnn_loss))
             tf.summary.scalar('total_loss', tf.reduce_sum(self.cost))
             tf.summary.histogram("latent_vector", self.z_vector)
             tf.summary.histogram("latent_mean", self.z_mean)
             tf.summary.histogram("latent_log_sigma", self.z_log_sigma)
             self.summary_op = tf.summary.merge_all()
 
-    def train(self, x_train, y_train, x_val, y_val, true_val, disc_train, disc_val, true_disc_val):
+    def train(self, x_train, y_train, z_train, x_val, y_val, z_val, true_val, true_cat):
 
         print('[INFO] Training process started')
 
@@ -311,8 +320,8 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
             for epoch_i in range(1, self.epochs + 1):
 
                 start_time = time.time()
-                for batch_i, (input_batch, output_batch, disc_batch, source_sent_lengths, tar_sent_lengths, tar_disc_lenghts) in enumerate(
-                        data_utils.get_batches(x_train, y_train, self.batch_size, disc_train)):
+                for batch_i, (input_batch, output_batch, category_batch, source_sent_lengths, tar_sent_lengths, tar_cat_length) in enumerate(
+                        data_utils.get_batches_mult(x_train, y_train, z_train, self.batch_size)):
 
                     try:
                         iter_i += 1
@@ -321,11 +330,12 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                             [self.train_op, self.summary_op],
                             feed_dict={self.input_data: input_batch,
                                        self.target_data: output_batch,
-                                       self.disc_data: disc_batch,
+                                       self.cnn.input_x: input_batch,
+                                       self.cnn.input_y: category_batch,
+                                       self.cnn.dropout_keep_prob: 1.0,
                                        self.lr: learning_rate,
                                        self.source_sentence_length: source_sent_lengths,
                                        self.target_sentence_length: tar_sent_lengths,
-                                       self.target_disc_length: tar_disc_lengths,
                                        self.keep_prob: self.dropout_keep_prob,
                                        self.lambda_coeff: lambda_val,
                                        self.z_temperature: self.z_temp,
@@ -344,7 +354,8 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                         # print(iter_i, e)
                         pass
 
-                self.validate(sess, x_val, y_val, true_val, disc_val, true_disc_val)
+                self.validate(sess, x_val, y_val, z_val, true_val, true_cat)
+                # self.validate(sess, x_val, y_val, true_val)
                 val_bleu_str = str(self.epoch_bleu_score_val['1'][epoch_i - 1]) + ' | ' \
                                + str(self.epoch_bleu_score_val['2'][epoch_i - 1]) + ' | ' \
                                + str(self.epoch_bleu_score_val['3'][epoch_i - 1]) + ' | ' \
@@ -369,7 +380,8 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                     f.write('\n'.join(self.log_str))
                 print(self.log_str[-1])
 
-    def validate(self, sess, x_val, y_val, true_val, disc_val, true_disc_val):
+    def validate(self, sess, x_val, y_val, z_val, true_val, true_cat):
+    # def validate(self, sess, x_val, y_val, true_val):
         # Calculate BLEU on validation data
         hypotheses_val = []
         references_val = []
@@ -377,8 +389,8 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
         if self.config['experiment'] == 'qgen':
             symbol.append('?')
 
-        for batch_i, (input_batch, output_batch, disc_batch, source_sent_lengths, tar_sent_lengths, tar_disc_lengths) in enumerate(
-                data_utils.get_batches(x_val, y_val, self.batch_size, disc_val)):
+        for batch_i, (input_batch, output_batch, category_batch, source_sent_lengths, tar_sent_lengths, tar_cat_length) in enumerate(
+                data_utils.get_batches_mult(x_val, y_val, z_val, self.batch_size)):
             answer_logits = sess.run(self.inference_logits,
                                      feed_dict={self.input_data: input_batch,
                                                 self.source_sentence_length: source_sent_lengths,
@@ -386,6 +398,10 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                                                 self.word_dropout_keep_prob: 1.0,
                                                 self.z_temperature: self.z_temp,
                                                 self.attention_temperature: self.attention_temp})
+            cnn_loss, cnn_accuracy = sess.run([self.cnn_loss, self.cnn.accuracy],
+                                              feed_dict={self.cnn.input_x: input_batch,
+                                                         self.cnn.input_y: category_batch,
+                                                         self.cnn.dropout_keep_prob: 1.0})
 
             for k, pred in enumerate(answer_logits):
                 hypotheses_val.append(
@@ -399,7 +415,7 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
         self.epoch_bleu_score_val['3'].append(bleu_scores[2])
         self.epoch_bleu_score_val['4'].append(bleu_scores[3])
 
-    def predict(self, checkpoint, x_test, y_test, true_test):
+    def predict(self, checkpoint, x_test, y_test, z_test, true_test, true_cat):
         pred_logits = []
         hypotheses_test = []
         references_test = []
@@ -412,16 +428,22 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
             saver = tf.train.Saver()
             saver.restore(sess, checkpoint)
 
-            for batch_i, (input_batch, output_batch, source_sent_lengths, tar_sent_lengths) in enumerate(
-                    data_utils.get_batches(x_test, y_test, self.batch_size)):
-                result = sess.run(self.inference_logits, feed_dict={self.input_data: input_batch,
-                                                                    self.source_sentence_length: source_sent_lengths,
-                                                                    self.keep_prob: 1.0,
-                                                                    self.word_dropout_keep_prob: 1.0,
-                                                                    self.z_temperature: self.z_temp,
-                                                                    self.attention_temperature: self.attention_temp})
-
+            for batch_i, (input_batch, output_batch, category_batch, source_sent_lengths, tar_sent_lengths, tar_cat_length) in enumerate(
+                    data_utils.get_batches_mult(x_test, y_test, z_test, self.batch_size)):
+                result = sess.run(self.inference_logits,
+                                  feed_dict={self.input_data: input_batch,
+                                             self.source_sentence_length: source_sent_lengths,
+                                             self.keep_prob: 1.0,
+                                             self.word_dropout_keep_prob: 1.0,
+                                             self.z_temperature: self.z_temp,
+                                             self.attention_temperature: self.attention_temp})
                 pred_logits.extend(result)
+
+                cnn_loss, cnn_accuracy = sess.run([self.cnn_loss, self.cnn.accuracy],
+                                                  feed_dict={
+                                                self.cnn.input_x: input_batch,
+                                                self.cnn.input_y: category_batch,
+                                                self.cnn.dropout_keep_prob: 1.0})
 
                 for k, pred in enumerate(result):
                     hypotheses_test.append(
@@ -445,11 +467,10 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
             print('Generated: {}\n'.format(
                 " ".join([self.decoder_idx_word[i] for i in pred if i not in [self.pad, self.eos]] + symbol)))
 
-    def get_diversity_metrics(self, checkpoint, x_test, y_test, disc_test, num_samples=10, num_iterations=3):
+    def get_diversity_metrics(self, checkpoint, x_test, y_test, num_samples=10, num_iterations = 3):
 
         x_test_repeated = np.repeat(x_test, num_samples, axis=0)
         y_test_repeated = np.repeat(y_test, num_samples, axis=0)
-        disc_test_repeated = np.repeat(disc_test, num_samples, axis=0)
 
         entropy_list = []
         uni_diversity = []
@@ -467,8 +488,8 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
                 answer_logits = []
                 pred_sentences = []
 
-                for batch_i, (input_batch, output_batch, disc_batch, source_sent_lengths, tar_sent_lengths) in enumerate(
-                        data_utils.get_batches(x_test_repeated, y_test_repeated, self.batch_size, disc_test_repeated)):
+                for batch_i, (input_batch, output_batch, source_sent_lengths, tar_sent_lengths) in enumerate(
+                        data_utils.get_batches(x_test_repeated, y_test_repeated, self.batch_size)):
                     result = sess.run(self.inference_logits, feed_dict={self.input_data: input_batch,
                                                                     self.source_sentence_length: source_sent_lengths,
                                                                     self.keep_prob: 1.0,
@@ -497,88 +518,3 @@ class VarSeq2SeqVarAttnMultiTaskModel(object):
         print('Entropy = {:>.3f} | Distinct-1 = {:>.3f} | Distinct-2 = {:>.3f}'.format(np.mean(entropy_list),
                                                                                        np.mean(uni_diversity),
                                                                                        np.mean(bi_diversity)))
-
-
-class TextCNN(object):
-    """
-    A CNN for text classification.
-    Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
-    This model is taken from linguistic-style-transfer repo
-    """
-
-    def __init__(self, sequence_length, num_classes, vocab_size,
-                 embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
-        # Placeholders for input, output and dropout
-        self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
-        self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
-        self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
-
-        # Keeping track of l2 regularization loss (optional)
-        l2_loss = tf.constant(0.0)
-
-        # Embedding layer
-        with tf.name_scope("embedding"):
-            self.W = tf.Variable(
-                tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
-                name="W")
-            self.embedded_chars = tf.nn.embedding_lookup(self.W, self.input_x)
-            self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
-
-        # Create a convolution + maxpool layer for each filter size
-        pooled_outputs = []
-        # Since we are using filters of different sizes, we need to iterate over
-        # them and then merge their outputs to give one big feature vector
-        for i, filter_size in enumerate(filter_sizes):
-            with tf.name_scope("conv-maxpool-{}".format(filter_size)):
-                # Convolution Layer
-                filter_shape = [filter_size, embedding_size, 1, num_filters]
-                W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
-                b = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b")
-                conv = tf.nn.conv2d(
-                    self.embedded_chars_expanded,
-                    W,
-                    strides=[1, 1, 1, 1],
-                    padding="VALID",
-                    name="conv")
-                # Apply nonlinearity
-                h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-                # Maxpooling over the outputs
-                pooled = tf.nn.max_pool(
-                    h,
-                    ksize=[1, sequence_length - filter_size + 1, 1, 1],
-                    strides=[1, 1, 1, 1],
-                    padding='VALID',
-                    name="pool")
-                pooled_outputs.append(pooled)
-
-        # Combine all the pooled features
-        num_filters_total = num_filters * len(filter_sizes)
-        self.h_pool = tf.concat(pooled_outputs, 3)
-        self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
-
-        # Add dropout
-        with tf.name_scope("dropout"):
-            self.h_drop = tf.nn.dropout(self.h_pool_flat, self.dropout_keep_prob)
-
-        # Final (unnormalized) scores and predictions
-        with tf.name_scope("output"):
-            W = tf.get_variable(
-                "W",
-                shape=[num_filters_total, num_classes],
-                initializer=tf.contrib.layers.xavier_initializer())
-            b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
-            l2_loss += tf.nn.l2_loss(W)
-            l2_loss += tf.nn.l2_loss(b)
-            # TODO: Change to softmax
-            self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
-            self.predictions = tf.argmax(self.scores, 1, name="predictions")
-
-        # Calculate mean cross-entropy loss
-        with tf.name_scope("loss"):
-            losses = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.scores, labels=self.input_y)
-            self.loss = tf.reduce_sum(losses) + l2_reg_lambda * l2_loss
-
-        # Accuracy
-        with tf.name_scope("accuracy"):
-            correct_predictions = tf.equal(self.predictions, tf.argmax(self.input_y, 1))
-            self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")

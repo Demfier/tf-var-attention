@@ -17,6 +17,7 @@ import pandas as pd
 
 from utils import data_utils
 from model_config import config
+from train_discriminator import get_label_vec
 from ved_varAttnMultiTask import VarSeq2SeqVarAttnMultiTaskModel
 
 
@@ -52,11 +53,35 @@ def train_model(config):
         output_sentences = pd.concat([train_data['ProductPhrase'],
                                       val_data['ProductPhrase'],
                                       test_data['ProductPhrase']])
-        disc_categories = pd.concat([train_data['Category'],
-                                     val_data['Category'],
-                                     test_data['Category']])
+        categories = pd.concat([train_data['Category'],
+                                val_data['Category'],
+                                test_data['Category']])
+        # Generate labels
+        all_categories = categories.unique()
+        num_categories = len(all_categories)
+        print("total categories: {}".format(num_categories))
+        cat_to_index = {}
+        index_to_cat = {}
+        for idx, cat in enumerate(all_categories):
+            cat_to_index[cat] = idx
+            index_to_cat[idx] = cat
+
         true_val = val_data['ProductPhrase']
-        true_disc_val = val_data['Category']
+        true_cat = val_data['Category']
+        filters = '!"#$%&()*+/:;<=>@[\\]^`{|}~\t\n'
+        w2v_path = config['w2v_dir'] + 'w2vmodel_arc.pkl'
+
+    elif config['experiment'] == 'arc2':
+        train_data = pd.read_csv(config['data_dir'] + 'df_arc2_train.csv')
+        val_data = pd.read_csv(config['data_dir'] + 'df_arc2_val.csv')
+        test_data = pd.read_csv(config['data_dir'] + 'df_arc2_test.csv')
+        input_sentences = pd.concat([train_data['Review-Sent'],
+                                    val_data['Review-Sent'],
+                                    test_data['Review-Sent']])
+        output_sentences = pd.concat([train_data['Categories'],
+                                      val_data['Categories'],
+                                      test_data['Categories']])
+        true_val = val_data['Categories']
         filters = '!"#$%&()*+/:;<=>@[\\]^`{|}~\t\n'
         w2v_path = config['w2v_dir'] + 'w2vmodel_arc.pkl'
 
@@ -74,25 +99,22 @@ def train_model(config):
                                                         filters,
                                                         config['decoder_num_tokens'],
                                                         config['decoder_vocab'])
-
-    disc, disc_word_index = data_utils.tokenize_sequence(disc_categories,
-                                                         filters,
-                                                         config['max_cat_length'],
-                                                         config['category_vocab'])
+    z = [get_label_vec(label_seq, cat_to_index, num_categories) for label_seq in categories]
+    true_cat = [get_label_vec(label_seq, cat_to_index, num_categories) for label_seq in true_cat]
 
     print('[INFO] Split data into train-validation-test sets')
-    x_train, y_train, x_val, y_val, x_test, y_test, disc_train, disc_val, dist_test = data_utils.create_data_split(x,
-                                                                                                                   y,
-                                                                                                                   config['experiment'],
-                                                                                                                   disc)
+    x_train, y_train, z_train, x_val, y_val, z_val, x_test, y_test, z_test = \
+        data_utils.create_data_split_mult(x, y, z, config['experiment'])
 
-    encoder_embeddings_matrix = data_utils.create_embedding_matrix(input_word_index,
-                                                                   config['embedding_size'],
-                                                                   w2v_path)
+    encoder_embeddings_matrix = \
+        data_utils.create_embedding_matrix(input_word_index,
+                                           config['embedding_size'],
+                                           w2v_path)
 
-    decoder_embeddings_matrix = data_utils.create_embedding_matrix(output_word_index,
-                                                                   config['embedding_size'],
-                                                                   w2v_path)
+    decoder_embeddings_matrix = \
+        data_utils.create_embedding_matrix(output_word_index,
+                                           config['embedding_size'],
+                                           w2v_path)
 
     # Re-calculate the vocab size based on the word_idx dictionary
     config['encoder_vocab'] = len(input_word_index)
@@ -104,7 +126,7 @@ def train_model(config):
                                             input_word_index,
                                             output_word_index)
 
-    model.train(x_train, y_train, x_val, y_val, true_val, disc_train, disc_val, true_disc_val)
+    model.train(x_train, y_train, z_train, x_val, y_val, z_val, true_val, true_cat)
 
 
 if __name__ == '__main__':

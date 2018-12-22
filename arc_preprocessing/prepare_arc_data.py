@@ -67,9 +67,9 @@ def make_csv_datafiles(force=False):
     # train:val:test <=> 70:10:20 split
     trn_idx = math.floor(0.7 * total_rows)
     val_idx = trn_idx + math.floor(0.1 * total_rows)
-    all_rws[:trn_idx].to_csv(SAVE_DIR + "df_arc_train.csv", index=False)
-    all_rws[trn_idx:val_idx].to_csv(SAVE_DIR + "df_arc_val.csv", index=False)
-    all_rws[val_idx:].to_csv(SAVE_DIR + "df_arc_test.csv", index=False)
+    all_rws[:trn_idx].to_csv(SAVE_DIR + "df_arc2_train.csv", index=False)
+    all_rws[trn_idx:val_idx].to_csv(SAVE_DIR + "df_arc2_val.csv", index=False)
+    all_rws[val_idx:].to_csv(SAVE_DIR + "df_arc2_test.csv", index=False)
     print("train-val-test csvs for ARC created in {:.4f} seconds".
           format(time.clock() - start))
 
@@ -97,8 +97,8 @@ def fix_dict_key_casing(force=False):
 
 if __name__ == '__main__':
     start = time.clock()
-    make_ultimate_sentences()
+    # make_ultimate_sentences()
     make_csv_datafiles(force=True)
-    fix_dict_key_casing()
-    print("\nDone preparing data for ARC experiments in {:.4f} seconds.".
+    # fix_dict_key_casing()
+    print("\nDone preparing data for ARC 2 experiments in {:.4f} seconds.".
           format(time.clock() - start))
